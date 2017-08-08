@@ -38,7 +38,7 @@ Outage_Calc <- function(Total_MW,Units,prob_out,prob_par,PDR,MTTR_O,MTTR_P){
         unit_rating <- c(Av_MW,P_MW,0)
         prob_rating <- c(prob_avail,prob_pout,prob_out)
         
-        MTTR <- unit_config[,2:3]%*%c(MTTR_O,MTTR_P)/(unit_config[,2]+unit_config[,3])
+        MTTR <- unit_config[,2:3]%*%c(MTTR_P,MTTR_O)/(unit_config[,2]+unit_config[,3])
         MTTR[is.na(MTTR)] <- 0
         OutFac <-  round((Total_MW - unit_config%*%unit_rating)/Total_MW,3)
         FOR <- round(trinom(Units,unit_config,prob_rating),6)
@@ -50,7 +50,8 @@ Outage_Calc <- function(Total_MW,Units,prob_out,prob_par,PDR,MTTR_O,MTTR_P){
 
 
 
-Murray <- Outage_Calc(1500,14,0.0082217,0.0000333,0.119697,33.45*2,10.75*2)
-Hallet <- Outage_Calc(220,12,0.0066015,0.0008687,0.3189,20.45*2,5.9*2)
+Murray <- Outage_Calc(1500,14,0.0082217,0.0000333,0.119697,20.45*2,5.9*2)
+Hallet <- Outage_Calc(220,12,0.0066015,0.0008687,0.3189,33.45*2,10.75*2)
 
 Murray[Murray[,4]>0,]
+Hallet[Hallet[,4]>0,]
