@@ -95,12 +95,17 @@ trinom_prob <- function(Total_MW,n, prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
         ## Calculate average MW per unit
         Av_MW <- Total_MW /  n 
         ## Calculate average MW per unit when derated
+        PDR <- PDR / 100
         P_MW <- Av_MW * (1-PDR)
         
         ## Calculate probability of no outage
-        prob_avail <- (1-prob_out)*(1-prob_par)
+        prob_avail <- (1-(prob_out/100))*(1-(prob_par/100))
         ## Calculate probability of a partial outage
-        prob_pout <- (1-prob_out)*prob_par
+        prob_pout <- (1-(prob_out/100))*prob_par/100
+       
+        prob_out <- (prob_out/100)
+        prob <- c(prob_avail, prob_pout,prob_out)
+        
         
         ## Calculate range of possibilities by calling the trinomial_exp function
         Comb_State <- trinomial_exp(n)
@@ -119,7 +124,7 @@ trinom_prob <- function(Total_MW,n, prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
                 (prob[2]^Comb_State[,2])*(prob[3]^Comb_State[,3])
         
         ## Round to level of significance specified in parameters
-        Comb_Prob <- round(Comb_Prob,5)
+        Comb_Prob <- round(Comb_Prob*100,5)
         
         ## Calculate Mean Time to Repair. Initialise vector with default values
         MTTR <- rep(MTTR_D,nrow(Comb_State))
@@ -136,11 +141,12 @@ trinom_prob <- function(Total_MW,n, prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
         ## Combine all data for reporting
         Comb <- data.frame(cbind(Comb_State,Comb_Cap,CapOut, MTTR, Comb_Prob))
         ## Name columns of Data
-        names(Comb) <- c("Available", "Partial", "Full_Out","Total_Cap","Out_Fac","MTTR","FOR")
+        names(Comb) <- c("Available", "Partial", "Full_Out","Total_Cap","Out_Fac","MTTR (hr)","FOR")
+        Comb <- Comb[order(Comb$Out_Fac),]
         
         ## Only return probabilities above zero (According to specified significance)
         if (rep_zero==FALSE)
-                return(Comb[Comb[,"FOR"]> 0,])
+                return(Comb[Comb[,"FOR"]> 0,c("Out_Fac","MTTR (hr)","FOR")])
         else if (rep_zero==TRUE)
                 return(Comb)
 }
@@ -155,10 +161,12 @@ trinom_prob <- function(Total_MW,n, prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
 ## PDR = partial outage derating
 ## MTTR_P - MTTR Partial Outage MTTR_O = Full Outage, MTTR_D = Default for combinations
 ## returns a vector with one probability for each state
-fullexp_prob <- function(unit_cap,n,prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0.5,CCGT=FALSE){
-        prob_avail <- (1-prob_out)*(1-prob_par)
-        prob_pout <- (1-prob_out)*prob_par
+fullexp_prob <- function(unit_cap,n,prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0.5,CCGT=FALSE,sig=4,rep_zero=FALSE){
+        prob_avail <- (1-(prob_out/100))*(1-(prob_par/100))
+        prob_pout <- (1-(prob_out/100))*prob_par/100
+        prob_out <- (prob_out/100)
         prob <- c(prob_avail, prob_pout,prob_out)
+        PDR <- PDR / 100
         
         state <- full_exp(n)
         
@@ -230,7 +238,7 @@ fullexp_prob <- function(unit_cap,n,prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
         
         ## Calculate probabilties
         Comb_Prob <-(prob[1]^Comb_State[,1])*(prob[2]^Comb_State[,2])*(prob[3]^Comb_State[,3])
-        Comb_Prob <- round(Comb_Prob,5)
+        Comb_Prob <- round(Comb_Prob*100,sig)
         
         ## Combine all data
         
@@ -239,15 +247,23 @@ fullexp_prob <- function(unit_cap,n,prob_out,prob_par,PDR,MTTR_O,MTTR_P,MTTR_D=0
         Comb <- data.frame(cbind(Comb_State,Comb_Cap,CapOut, Comb_Prob,MTTR))
         ## Sum up probabilities of equal operating states to reduce overall size
         ## i.e. where the same configuration of operating states has the same available capacity
-        Reduced <- aggregate(Comb$Comb_Prob,by=list(Comb$Avail,Comb$Par,Comb$Out,Comb$Comb_Cap,Comb$CapOut, Comb$MTTR),FUN=sum)
-        names(Reduced) <- c("Available", "Partial", "Full_Out","Total_Cap","Out_Fac","MTTR","FOR")
+        Reduced <- aggregate(Comb$Comb_Prob,by=list(Comb$CapOut, Comb$MTTR),FUN=sum)
+        names(Reduced) <- c("Out_Fac","MTTR (hr)","FOR")
+        
         ## Only return probabilities above zero (5dp)
-        Reduced[Reduced[,"FOR"]> 0,]
-       
+        Reduced <- Reduced[order(Reduced$Out_Fac),]
+        
+        ## Only return probabilities above zero (According to specified significance)
+        if (rep_zero==FALSE)
+                return(Reduced[Reduced[,"FOR"]> 0,])
+        else if (rep_zero==TRUE)
+                return(Comb)
 }
 
 
-
+out.rates <- read.csv("outage.csv")
+rownames(out.rates) <- as.character(out.rates[,1])
+out.rates <- out.rates[,2:6]
 
 
 
@@ -257,3 +273,271 @@ Murray <- Outage_Calc(1500,14,0.0082217,0.0000333,0.119697,20.45*2,5.9*2)
 Hallet <- Outage_Calc(220,12,0.0066015,0.0008687,0.3189,33.45*2,10.75*2)
 SHGEN <- Outage_Calc(240,4,0.0082217,0.0000333,0.119697,20.45*2,5.9*2)
 
+write.to.plexos <- function(GenInfo,DUID,GenType){
+        ## Subtract 1 from number of bands as we don't write out Band 1 (Full Capacity)
+        num_bands <- nrow(GenInfo)-1
+       
+        #Initialise output matrix
+        plex_out <- matrix(ncol=13,nrow=num_bands*3)
+        
+        #List of properties to write to Plexos, with fields and units
+        properties <- c("Forced Outage Rate","Outage Factor","Mean Time to Repair")
+        fields <- c("FOR","Out_Fac","MTTR (hr)")
+        units <- c("%","%","h")
+        
+        #Set row count to 1
+        n <- 1
+        for (i in 1:3){
+                ## Go through one property at a time
+                prop <- properties[i]
+                unit <- units[i]
+                ## Write out all the bands for each property
+                for (j in 1:num_bands){
+                        field <- fields[i]
+                        #Band 1 is ignored as it represents full capacity - start at (j+1)
+                        new_row <- c(prop,GenInfo[j+1,field],"",unit,j+1,
+                                     "","","","=","","","",GenType)
+                        plex_out[n,] <- new_row
+                      #Move to next row
+                        n <- n+1
+                }
+        }
+        
+        ## Insert DUID name as first column
+        plex_out <- cbind(DUID,plex_out)
+        ## Label output columns
+        colnames(plex_out) <- c("DUID","Property","Value","Data File","Units","Band",
+                              "Date From","Date To","Timeslice","Action","Expression",
+                              "Scenario","Memo","Category")
+        data.frame(plex_out)
+}
+
+
+LEM_WIL <- fullexp_prob(unit_cap=c(51,30.6),n=2,
+                        prob_out=out.rates["Hydro","P_OUT"],
+                        prob_par=out.rates["Hydro","P_PAR"],
+                        PDR=out.rates["Hydro","PDR"],
+                        MTTR_O=out.rates["Hydro","MTTR_O"],
+                        MTTR_P=out.rates["Hydro","MTTR_P"])
+
+
+SHGEN <- fullexp_prob(unit_cap=c(40,40,80,80),n=4,
+                        prob_out=out.rates["Hydro","P_OUT"],
+                        prob_par=out.rates["Hydro","P_PAR"],
+                        PDR=out.rates["Hydro","PDR"],
+                        MTTR_O=out.rates["Hydro","MTTR_O"],
+                        MTTR_P=out.rates["Hydro","MTTR_P"])
+
+CPSA <- fullexp_prob(unit_cap=c(43,43,57),n=3,
+                      prob_out=out.rates["CCGT","P_OUT"],
+                      prob_par=out.rates["CCGT","P_PAR"],
+                      PDR=out.rates["CCGT","PDR"],
+                      MTTR_O=out.rates["CCGT","MTTR_O"],
+                      MTTR_P=out.rates["CCGT","MTTR_P"],
+                      CCGT=TRUE)
+
+DDPS1 <- fullexp_prob(unit_cap=c(121,121,121,280),n=4,
+                     prob_out=out.rates["CCGT","P_OUT"],
+                     prob_par=out.rates["CCGT","P_PAR"],
+                     PDR=out.rates["CCGT","PDR"],
+                     MTTR_O=out.rates["CCGT","MTTR_O"],
+                     MTTR_P=out.rates["CCGT","MTTR_P"],
+                     CCGT=TRUE)
+
+OSB_AG <- fullexp_prob(unit_cap=c(118,62),n=2,
+                      prob_out=out.rates["CCGT","P_OUT"],
+                      prob_par=out.rates["CCGT","P_PAR"],
+                      PDR=out.rates["CCGT","PDR"],
+                      MTTR_O=out.rates["CCGT","MTTR_O"],
+                      MTTR_P=out.rates["CCGT","MTTR_P"],
+                      CCGT=TRUE)
+
+PPCCGT <- fullexp_prob(unit_cap=c(160,160,158),n=3,
+                     prob_out=out.rates["CCGT","P_OUT"],
+                     prob_par=out.rates["CCGT","P_PAR"],
+                     PDR=out.rates["CCGT","PDR"],
+                     MTTR_O=out.rates["CCGT","MTTR_O"],
+                     MTTR_P=out.rates["CCGT","MTTR_P"],
+                     CCGT=TRUE)
+
+SITHE01 <- fullexp_prob(unit_cap=c(30,30,30,62),n=4,
+                      prob_out=out.rates["CCGT","P_OUT"],
+                      prob_par=out.rates["CCGT","P_PAR"],
+                      PDR=out.rates["CCGT","PDR"],
+                      MTTR_O=out.rates["CCGT","MTTR_O"],
+                      MTTR_P=out.rates["CCGT","MTTR_P"],
+                      CCGT=TRUE)
+
+TVCC201 <- fullexp_prob(unit_cap=c(68,141),n=2,
+                       prob_out=out.rates["CCGT","P_OUT"],
+                       prob_par=out.rates["CCGT","P_PAR"],
+                       PDR=out.rates["CCGT","PDR"],
+                       MTTR_O=out.rates["CCGT","MTTR_O"],
+                       MTTR_P=out.rates["CCGT","MTTR_P"],
+                       CCGT=TRUE)
+
+AGLHAL <- trinom_prob(Total_MW=222,n=12,
+                        prob_out=out.rates["OCGT","P_OUT"],
+                        prob_par=out.rates["OCGT","P_PAR"],
+                        PDR=out.rates["OCGT","PDR"],
+                        MTTR_O=out.rates["OCGT","MTTR_O"],
+                        MTTR_P=out.rates["OCGT","MTTR_P"])
+
+AGLSOM <- trinom_prob(Total_MW=160,n=4,
+                      prob_out=out.rates["OCGT","P_OUT"],
+                      prob_par=out.rates["OCGT","P_PAR"],
+                      PDR=out.rates["OCGT","PDR"],
+                      MTTR_O=out.rates["OCGT","MTTR_O"],
+                      MTTR_P=out.rates["OCGT","MTTR_P"])
+
+HVGTS <- trinom_prob(Total_MW=50,n=2,
+                      prob_out=out.rates["OCGT","P_OUT"],
+                      prob_par=out.rates["OCGT","P_PAR"],
+                      PDR=out.rates["OCGT","PDR"],
+                      MTTR_O=out.rates["OCGT","MTTR_O"],
+                      MTTR_P=out.rates["OCGT","MTTR_P"])
+
+POR01 <- trinom_prob(Total_MW=50,n=2,
+                      prob_out=out.rates["OCGT","P_OUT"],
+                      prob_par=out.rates["OCGT","P_PAR"],
+                      PDR=out.rates["OCGT","PDR"],
+                      MTTR_O=out.rates["OCGT","MTTR_O"],
+                      MTTR_P=out.rates["OCGT","MTTR_P"])
+
+SNUG1 <- trinom_prob(Total_MW=63,n=3,
+                      prob_out=out.rates["OCGT","P_OUT"],
+                      prob_par=out.rates["OCGT","P_PAR"],
+                      PDR=out.rates["OCGT","PDR"],
+                      MTTR_O=out.rates["OCGT","MTTR_O"],
+                      MTTR_P=out.rates["OCGT","MTTR_P"])
+
+
+GORDON <- trinom_prob(Total_MW=432,n=3,
+                      prob_out=out.rates["Hydro","P_OUT"],
+                      prob_par=out.rates["Hydro","P_PAR"],
+                      PDR=out.rates["Hydro","PDR"],
+                      MTTR_O=out.rates["Hydro","MTTR_O"],
+                      MTTR_P=out.rates["Hydro","MTTR_P"])
+
+
+GUTHEGA<- trinom_prob(Total_MW=60,n=2,
+                      prob_out=out.rates["Hydro","P_OUT"],
+                      prob_par=out.rates["Hydro","P_PAR"],
+                      PDR=out.rates["Hydro","PDR"],
+                      MTTR_O=out.rates["Hydro","MTTR_O"],
+                      MTTR_P=out.rates["Hydro","MTTR_P"])
+
+LI_WY_CA<- trinom_prob(Total_MW=183,n=8,
+                       prob_out=out.rates["Hydro","P_OUT"],
+                       prob_par=out.rates["Hydro","P_PAR"],
+                       PDR=out.rates["Hydro","PDR"],
+                       MTTR_O=out.rates["Hydro","MTTR_O"],
+                       MTTR_P=out.rates["Hydro","MTTR_P"])
+
+MCKAY1<- trinom_prob(Total_MW=300,n=8,
+                     prob_out=out.rates["Hydro","P_OUT"],
+                     prob_par=out.rates["Hydro","P_PAR"],
+                     PDR=out.rates["Hydro","PDR"],
+                     MTTR_O=out.rates["Hydro","MTTR_O"],
+                     MTTR_P=out.rates["Hydro","MTTR_P"])
+
+MURRAY<- trinom_prob(Total_MW=1500,n=14,
+                     prob_out=out.rates["Hydro","P_OUT"],
+                     prob_par=out.rates["Hydro","P_PAR"],
+                     PDR=out.rates["Hydro","PDR"],
+                     MTTR_O=out.rates["Hydro","MTTR_O"],
+                     MTTR_P=out.rates["Hydro","MTTR_P"])
+
+POAT110<- trinom_prob(Total_MW=100,n=2,
+                      prob_out=out.rates["Hydro","P_OUT"],
+                      prob_par=out.rates["Hydro","P_PAR"],
+                      PDR=out.rates["Hydro","PDR"],
+                      MTTR_O=out.rates["Hydro","MTTR_O"],
+                      MTTR_P=out.rates["Hydro","MTTR_P"])
+
+POAT220<- trinom_prob(Total_MW=200,n=4,
+                      prob_out=out.rates["Hydro","P_OUT"],
+                      prob_par=out.rates["Hydro","P_PAR"],
+                      PDR=out.rates["Hydro","PDR"],
+                      MTTR_O=out.rates["Hydro","MTTR_O"],
+                      MTTR_P=out.rates["Hydro","MTTR_P"])
+
+TARRALEA<- trinom_prob(Total_MW=90,n=6,
+                       prob_out=out.rates["Hydro","P_OUT"],
+                       prob_par=out.rates["Hydro","P_PAR"],
+                       PDR=out.rates["Hydro","PDR"],
+                       MTTR_O=out.rates["Hydro","MTTR_O"],
+                       MTTR_P=out.rates["Hydro","MTTR_P"])
+
+TREVALLN<- trinom_prob(Total_MW=80,n=4,
+                       prob_out=out.rates["Hydro","P_OUT"],
+                       prob_par=out.rates["Hydro","P_PAR"],
+                       PDR=out.rates["Hydro","PDR"],
+                       MTTR_O=out.rates["Hydro","MTTR_O"],
+                       MTTR_P=out.rates["Hydro","MTTR_P"])
+
+TUMUT3<- trinom_prob(Total_MW=1500,n=6,
+                     prob_out=out.rates["Hydro","P_OUT"],
+                     prob_par=out.rates["Hydro","P_PAR"],
+                     PDR=out.rates["Hydro","PDR"],
+                     MTTR_O=out.rates["Hydro","MTTR_O"],
+                     MTTR_P=out.rates["Hydro","MTTR_P"])
+
+TUNGATIN<- trinom_prob(Total_MW=125,n=5,
+                       prob_out=out.rates["Hydro","P_OUT"],
+                       prob_par=out.rates["Hydro","P_PAR"],
+                       PDR=out.rates["Hydro","PDR"],
+                       MTTR_O=out.rates["Hydro","MTTR_O"],
+                       MTTR_P=out.rates["Hydro","MTTR_P"])
+
+UPPTUMUT<- trinom_prob(Total_MW=616,n=8,
+                       prob_out=out.rates["Hydro","P_OUT"],
+                       prob_par=out.rates["Hydro","P_PAR"],
+                       PDR=out.rates["Hydro","PDR"],
+                       MTTR_O=out.rates["Hydro","MTTR_O"],
+                       MTTR_P=out.rates["Hydro","MTTR_P"])
+
+
+ANGAST1<- trinom_prob(Total_MW=50,n=30,
+                       prob_out=out.rates["Gas_other","P_OUT"],
+                       prob_par=out.rates["Gas_other","P_PAR"],
+                       PDR=out.rates["Gas_other","PDR"],
+                       MTTR_O=out.rates["Gas_other","MTTR_O"],
+                       MTTR_P=out.rates["Gas_other","MTTR_P"])
+
+LONSDALE<- trinom_prob(Total_MW=20,n=18,
+                      prob_out=out.rates["Gas_other","P_OUT"],
+                      prob_par=out.rates["Gas_other","P_PAR"],
+                      PDR=out.rates["Gas_other","PDR"],
+                      MTTR_O=out.rates["Gas_other","MTTR_O"],
+                      MTTR_P=out.rates["Gas_other","MTTR_P"])
+
+fullset <- rbind(write.to.plexos(LEM_WIL,"LEM_WIL","Hydro"),
+                 write.to.plexos(SHGEN,"SHGEN","Hydro"),
+                 write.to.plexos(CPSA,"CPSA","CCGT"),
+                 write.to.plexos(DDPS1,"DDPS1","CCGT"),
+                 write.to.plexos(OSB_AG,"OSB-AG","CCGT"),
+                 write.to.plexos(PPCCGT,"PPCCGT","CCGT"),
+                 write.to.plexos(SITHE01,"SITHE01","CCGT"),
+                 write.to.plexos(TVCC201,"TVCC201","CCGT"),
+                 write.to.plexos(ANGAST1,"ANGAST1","Diesel"),
+                 write.to.plexos(LONSDALE,"LONSDALE","Diesel"),
+                 write.to.plexos(GORDON,"GORDON","Hydro"),
+                 write.to.plexos(GUTHEGA,"GUTHEGA","Hydro"),
+                 write.to.plexos(LI_WY_CA,"LI_WY_CA","Hydro"),
+                 write.to.plexos(MCKAY1,"MCKAY1","Hydro"),
+                 write.to.plexos(MURRAY,"MURRAY","Hydro"),
+                 write.to.plexos(POAT110,"POAT110","Hydro"),
+                 write.to.plexos(POAT220,"POAT220","Hydro"),
+                 write.to.plexos(TARRALEA,"TARRALEA","Hydro"),
+                 write.to.plexos(TREVALLN,"TREVALLN","Hydro"),
+                 write.to.plexos(TUMUT3,"TUMUT3","Hydro"),
+                 write.to.plexos(TUNGATIN,"TUNGATIN","Hydro"),
+                 write.to.plexos(UPPTUMUT,"UPPTUMUT","Hydro"),
+                 write.to.plexos(AGLHAL,"AGLHAL","OCGT"),
+                 write.to.plexos(AGLSOM,"AGLSOM","OCGT"),
+                 write.to.plexos(HVGTS,"HVGTS","OCGT"),
+                 write.to.plexos(POR01,"POR01","OCGT"),
+                 write.to.plexos(SNUG1,"SNUG1","OCGT"))
+                 
+fullset[,"Value"] <- as.numeric(as.character(fullset[,"Value"]))
